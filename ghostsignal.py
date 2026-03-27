@@ -19,6 +19,7 @@ import sys
 import os
 import json
 import math
+import random
 import subprocess
 import datetime
 import threading
@@ -377,6 +378,37 @@ function clearPosition() {
 map.on('click', function(e) {
   if (window.pyBridge) window.pyBridge.onMapClick(e.latlng.lat, e.latlng.lng);
 });
+
+// Right-click context menu
+var ctxMenu = null;
+map.on('contextmenu', function(e) {
+  e.originalEvent.preventDefault();
+  if (ctxMenu) { ctxMenu.remove(); }
+  var lat = e.latlng.lat;
+  var lng = e.latlng.lng;
+  var popup = L.popup({ closeButton: true, className: 'ctx-popup' })
+    .setLatLng(e.latlng)
+    .setContent(
+      '<div style="font-family:monospace;font-size:11px;min-width:160px;">'
+      + '<div style="color:#00ffa3;margin-bottom:6px;letter-spacing:1px;">CONTEXT MENU</div>'
+      + '<div style="color:#aaa;font-size:9px;margin-bottom:8px;">' + lat.toFixed(5) + ', ' + lng.toFixed(5) + '</div>'
+      + '<button onclick="if(window.pyBridge){window.pyBridge.onMapRightClick(\'add_waypoint\','+lat+','+lng+');}" '
+      + 'style="display:block;width:100%;margin-bottom:4px;background:#131920;border:1px solid #00ffa3;color:#00ffa3;padding:5px 8px;cursor:pointer;font-family:monospace;font-size:11px;text-align:left;">'
+      + '&#43; Add Waypoint Here</button>'
+      + '<button onclick="if(window.pyBridge){window.pyBridge.onMapRightClick(\'set_start\','+lat+','+lng+');}" '
+      + 'style="display:block;width:100%;margin-bottom:4px;background:#131920;border:1px solid #ffb800;color:#ffb800;padding:5px 8px;cursor:pointer;font-family:monospace;font-size:11px;text-align:left;">'
+      + '&#9654; Set as Start Point</button>'
+      + '<button onclick="if(window.pyBridge){window.pyBridge.onMapRightClick(\'set_end\','+lat+','+lng+');}" '
+      + 'style="display:block;width:100%;margin-bottom:4px;background:#131920;border:1px solid #ff4444;color:#ff4444;padding:5px 8px;cursor:pointer;font-family:monospace;font-size:11px;text-align:left;">'
+      + '&#9632; Set as End Point</button>'
+      + '<button onclick="if(window.pyBridge){window.pyBridge.onMapRightClick(\'copy_coords\','+lat+','+lng+');}" '
+      + 'style="display:block;width:100%;background:#131920;border:1px solid #3a4a5a;color:#3a4a5a;padding:5px 8px;cursor:pointer;font-family:monospace;font-size:11px;text-align:left;">'
+      + '&#128203; Copy Coordinates</button>'
+      + '</div>'
+    )
+    .openOn(map);
+  ctxMenu = popup;
+});
 </script>
 </body>
 </html>"""
@@ -410,35 +442,89 @@ class OSRMWorker(QThread):
 
 
 class SimWorker(QThread):
-    """Simulate position progress along route."""
-    position_update = pyqtSignal(float, float, float)  # lat, lng, progress (0-100)
+    """Simulate position progress along route with optional speed randomisation."""
+    position_update = pyqtSignal(float, float, float, float)  # lat, lng, progress, current_speed_kmh
     finished = pyqtSignal()
 
-    def __init__(self, waypoints, total_seconds):
+    def __init__(self, waypoints, total_seconds, base_speed_kmh=60,
+                 randomise=False, variance_pct=20):
         super().__init__()
         self.waypoints = waypoints
         self.total_seconds = total_seconds
+        self.base_speed_kmh = base_speed_kmh
+        self.randomise = randomise
+        self.variance_pct = variance_pct  # ±% speed variation
         self._stop = False
+        self._current_speed = base_speed_kmh
 
     def stop(self):
         self._stop = True
 
     def run(self):
         import time
-        start = time.time()
         wps = self.waypoints
         n = len(wps)
 
+        # Build per-segment distance table for smooth interpolation
+        seg_dists = []
+        for i in range(n - 1):
+            dlat = math.radians(wps[i+1]["lat"] - wps[i]["lat"])
+            dlng = math.radians(wps[i+1]["lng"] - wps[i]["lng"])
+            a = math.sin(dlat/2)**2 + math.cos(math.radians(wps[i]["lat"])) * \
+                math.cos(math.radians(wps[i+1]["lat"])) * math.sin(dlng/2)**2
+            seg_dists.append(6371 * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a)))
+        total_dist_km = sum(seg_dists) if seg_dists else 1.0
+
+        # Randomiser state
+        current_speed = float(self.base_speed_kmh)
+        speed_change_interval = 3.0   # seconds between speed jitter
+        last_speed_change = time.time()
+        travelled_km = 0.0
+        last_tick = time.time()
+
         while not self._stop:
-            elapsed = time.time() - start
-            pct = min((elapsed / self.total_seconds) * 100, 100)
-            idx = int((pct / 100) * (n - 1))
-            idx = min(idx, n - 1)
-            lat, lng = wps[idx]["lat"], wps[idx]["lng"]
-            self.position_update.emit(lat, lng, pct)
-            if pct >= 100:
+            now = time.time()
+            dt = now - last_tick
+            last_tick = now
+
+            # Apply speed randomisation — smooth random walk
+            if self.randomise and (now - last_speed_change) >= speed_change_interval:
+                max_delta = self.base_speed_kmh * (self.variance_pct / 100.0)
+                # Gaussian jitter, clamped to ±variance_pct
+                jitter = random.gauss(0, max_delta * 0.4)
+                current_speed = max(1.0, current_speed + jitter)
+                # Drift back toward base speed over time
+                current_speed += (self.base_speed_kmh - current_speed) * 0.15
+                current_speed = max(1.0, min(current_speed, self.base_speed_kmh * (1 + self.variance_pct / 100.0)))
+                last_speed_change = now
+            else:
+                current_speed = float(self.base_speed_kmh)
+
+            # Advance position by distance = speed × time
+            dist_this_tick = (current_speed / 3600.0) * dt  # km
+            travelled_km = min(travelled_km + dist_this_tick, total_dist_km)
+            pct = (travelled_km / total_dist_km) * 100.0 if total_dist_km > 0 else 100.0
+
+            # Find current segment and interpolate lat/lng
+            cum = 0.0
+            lat, lng = wps[0]["lat"], wps[0]["lng"]
+            for i, sd in enumerate(seg_dists):
+                if cum + sd >= travelled_km or i == len(seg_dists) - 1:
+                    if sd > 0:
+                        t = (travelled_km - cum) / sd
+                        t = max(0.0, min(1.0, t))
+                        lat = wps[i]["lat"] + t * (wps[i+1]["lat"] - wps[i]["lat"])
+                        lng = wps[i]["lng"] + t * (wps[i+1]["lng"] - wps[i]["lng"])
+                    else:
+                        lat, lng = wps[i]["lat"], wps[i]["lng"]
+                    break
+                cum += sd
+
+            self.position_update.emit(lat, lng, pct, current_speed)
+
+            if pct >= 100.0:
                 break
-            time.sleep(0.2)
+            time.sleep(0.25)
 
         self.finished.emit()
 
@@ -479,6 +565,7 @@ class MapBridge(QObject):
     """Exposed to JavaScript via QWebChannel."""
     map_clicked = pyqtSignal(float, float)
     marker_dragged = pyqtSignal(int, float, float)
+    map_right_clicked = pyqtSignal(str, float, float)  # action, lat, lng
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -490,6 +577,10 @@ class MapBridge(QObject):
     @pyqtSlot(int, float, float)
     def onMarkerDragged(self, idx: int, lat: float, lng: float):
         self.marker_dragged.emit(idx, lat, lng)
+
+    @pyqtSlot(str, float, float)
+    def onMapRightClick(self, action: str, lat: float, lng: float):
+        self.map_right_clicked.emit(action, lat, lng)
 
 
 # ─── Main Window ─────────────────────────────────────────────────────────────
@@ -511,6 +602,7 @@ class GhostSignal(QMainWindow):
         self.transmitting = False
         self.current_lat = 0.0
         self.current_lng = 0.0
+        self.current_speed = 0.0
 
         self._build_ui()
         self._connect_signals()
@@ -607,7 +699,32 @@ class GhostSignal(QMainWindow):
         self.speed_spin.setSuffix(" km/h")
         spd_row.addWidget(self.speed_spin)
         g_l3.addLayout(spd_row)
+
+        # Randomiser
+        self.randomise_chk = QCheckBox("Randomise speed")
+        self.randomise_chk.setStyleSheet("color:#00ffa3; font-size:11px;")
+        g_l3.addWidget(self.randomise_chk)
+
+        variance_row = QHBoxLayout()
+        variance_lbl = QLabel("Variance:")
+        variance_lbl.setStyleSheet("color:#4a6a8a; font-size:10px;")
+        self.variance_slider = QSlider(Qt.Orientation.Horizontal)
+        self.variance_slider.setRange(1, 80)
+        self.variance_slider.setValue(20)
+        self.variance_slider.setEnabled(False)
+        self.variance_val_lbl = QLabel("±20%")
+        self.variance_val_lbl.setStyleSheet("color:#ffb800; font-size:10px; min-width:32px;")
+        variance_row.addWidget(variance_lbl)
+        variance_row.addWidget(self.variance_slider)
+        variance_row.addWidget(self.variance_val_lbl)
+        g_l3.addLayout(variance_row)
         layout.addWidget(grp3)
+
+        # Wire randomiser toggle
+        self.randomise_chk.toggled.connect(self.variance_slider.setEnabled)
+        self.variance_slider.valueChanged.connect(
+            lambda v: self.variance_val_lbl.setText(f"\u00b1{v}%")
+        )
 
         # Start time
         grp4 = QGroupBox("SIMULATION START TIME")
@@ -792,6 +909,7 @@ class GhostSignal(QMainWindow):
     def _connect_signals(self):
         self.bridge.map_clicked.connect(self._on_map_click)
         self.bridge.marker_dragged.connect(self._on_marker_dragged)
+        self.bridge.map_right_clicked.connect(self._on_map_right_click)
         self.transport_combo.currentIndexChanged.connect(self._on_transport_change)
         self.freq_spin.valueChanged.connect(self._on_freq_change)
         self.gain_slider.valueChanged.connect(lambda v: self.gain_label.setText(f"{v} dB"))
@@ -810,6 +928,42 @@ class GhostSignal(QMainWindow):
         if 0 <= idx < len(self.waypoints):
             self.waypoints[idx] = {"lat": lat, "lng": lng}
             self._fetch_route()
+
+    @pyqtSlot(str, float, float)
+    def _on_map_right_click(self, action: str, lat: float, lng: float):
+        """Handle right-click context menu actions from the map."""
+        # Close the popup via JS
+        self.web_view.page().runJavaScript("if(ctxMenu){ctxMenu.remove();ctxMenu=null;}")
+
+        if action == "add_waypoint":
+            self.waypoints.append({"lat": lat, "lng": lng})
+            self._refresh_waypoints()
+            self._fetch_route()
+            self._log(f"WP {len(self.waypoints)} added (right-click): {lat:.5f}, {lng:.5f}")
+
+        elif action == "set_start":
+            # Insert/replace as first waypoint
+            if self.waypoints:
+                self.waypoints[0] = {"lat": lat, "lng": lng}
+            else:
+                self.waypoints.insert(0, {"lat": lat, "lng": lng})
+            self._refresh_waypoints()
+            self._fetch_route()
+            self._log(f"Start point set: {lat:.5f}, {lng:.5f}", "success")
+
+        elif action == "set_end":
+            # Insert/replace as last waypoint
+            if len(self.waypoints) > 1:
+                self.waypoints[-1] = {"lat": lat, "lng": lng}
+            else:
+                self.waypoints.append({"lat": lat, "lng": lng})
+            self._refresh_waypoints()
+            self._fetch_route()
+            self._log(f"End point set: {lat:.5f}, {lng:.5f}", "warn")
+
+        elif action == "copy_coords":
+            QApplication.clipboard().setText(f"{lat:.6f}, {lng:.6f}")
+            self._log(f"Copied: {lat:.6f}, {lng:.6f}")
 
     def _refresh_waypoints(self):
         self.wp_list.clear()
@@ -927,13 +1081,24 @@ class GhostSignal(QMainWindow):
         self.progress_bar.setValue(0)
 
         duration = max(self.route_duration_s, 60)
-        self.sim_worker = SimWorker(self.waypoints, duration)
+        randomise = self.randomise_chk.isChecked()
+        variance = self.variance_slider.value()
+        base_spd = self.speed_spin.value()
+
+        self.sim_worker = SimWorker(
+            self.waypoints, duration,
+            base_speed_kmh=base_spd,
+            randomise=randomise,
+            variance_pct=variance,
+        )
         self.sim_worker.position_update.connect(self._on_position_update)
         self.sim_worker.finished.connect(self._on_sim_finished)
         self.sim_worker.start()
 
+        rand_info = f"  randomise=ON  variance=±{variance}%" if randomise else "  randomise=OFF"
         self._log("▶ Transmitting GPS signal", "success")
         self._log(f"  device={self._get_device_name()}  freq={self.freq_spin.value():.3f}MHz  gain={self.gain_slider.value()}dB", "info")
+        self._log(f"  speed={base_spd}km/h{rand_info}", "info")
 
         # Show CLI and optionally run if tools available
         self._update_cli()
@@ -944,6 +1109,7 @@ class GhostSignal(QMainWindow):
         if self.hackrf_worker:
             self.hackrf_worker.stop()
         self.transmitting = False
+        self.current_speed = 0.0
         self._update_tx_badge(False)
         self.transmit_btn.setText("▶  TRANSMIT")
         self.transmit_btn.setObjectName("transmit_btn")
@@ -954,9 +1120,10 @@ class GhostSignal(QMainWindow):
         self._log("■ Transmission stopped", "warn")
         self._update_status()
 
-    def _on_position_update(self, lat: float, lng: float, pct: float):
+    def _on_position_update(self, lat: float, lng: float, pct: float, speed: float):
         self.current_lat = lat
         self.current_lng = lng
+        self.current_speed = speed
         self.progress_bar.setValue(int(pct))
         self.web_view.page().runJavaScript(f"updatePosition({lat},{lng});")
         self._update_status()
@@ -1109,7 +1276,8 @@ class GhostSignal(QMainWindow):
         wpts = len(self.waypoints)
         dist = f"  |  DIST: {self.route_distance_km:.2f} km" if self.route_distance_km > 0 else ""
         pos = f"  |  LAT: {self.current_lat:.6f}  LNG: {self.current_lng:.6f}" if self.transmitting else ""
-        self.status_bar.setText(f"STATE: {state}  |  DEVICE: {dev}  |  FREQ: {freq}  |  MODE: {mode}  |  WAYPTS: {wpts}{dist}{pos}")
+        spd = f"  |  SPEED: {self.current_speed:.1f} km/h" if self.transmitting else ""
+        self.status_bar.setText(f"STATE: {state}  |  DEVICE: {dev}  |  FREQ: {freq}  |  MODE: {mode}  |  WAYPTS: {wpts}{dist}{pos}{spd}")
 
     def _update_tx_badge(self, active: bool):
         if active:
