@@ -294,9 +294,7 @@ MAP_HTML = """<!DOCTYPE html>
 <style>
   html, body { margin:0; padding:0; height:100%; background:#090b0f; }
   #map { width:100%; height:100%; }
-  .leaflet-tile-pane {
-    filter: brightness(0.7) saturate(0.6) hue-rotate(180deg) invert(1) brightness(0.6);
-  }
+  /* CartoDB dark_all tiles are natively dark — no CSS filter needed */
   .leaflet-control-zoom a {
     background: #131920 !important;
     color: #00ffa3 !important;
@@ -316,7 +314,11 @@ MAP_HTML = """<!DOCTYPE html>
 <div id="map"></div>
 <script>
 var map = L.map('map', {center:[42.7,25.5], zoom:7});
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
+// CartoDB Voyager — no referer restrictions, dark-friendly
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap contributors'
+}).addTo(map);
 
 var markers = [];
 var routeLayer = null;
@@ -664,7 +666,8 @@ class GhostSignal(QMainWindow):
         self.web_view.page().setWebChannel(channel)
 
         # Inject QWebChannel JS support
-        self.web_view.page().setHtml(MAP_HTML, QUrl("about:blank"))
+        # Use a real https base URL so WebEngine sends a valid Referer to tile servers
+        self.web_view.page().setHtml(MAP_HTML, QUrl("https://ghostsignal.local/"))
 
         return self.web_view
 
