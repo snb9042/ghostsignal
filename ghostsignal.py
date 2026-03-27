@@ -688,14 +688,14 @@ class GhostSignal(QMainWindow):
         grp_freq = QGroupBox("FREQUENCY")
         g_freq = QVBoxLayout(grp_freq)
         freq_row = QHBoxLayout()
-        self.freq_spin = QSpinBox()
-        self.freq_spin.setRange(1_000_000, 6_000_000_000)
-        self.freq_spin.setValue(GPS_L1_HZ)
-        self.freq_spin.setSingleStep(1_000)
+        # freq_spin stores MHz as float (QSpinBox maxes at 32-bit int, GPS freqs exceed that)
+        self.freq_spin = QDoubleSpinBox()
+        self.freq_spin.setRange(1.0, 6000.0)
+        self.freq_spin.setDecimals(3)
+        self.freq_spin.setSingleStep(0.001)
+        self.freq_spin.setValue(GPS_L1_HZ / 1e6)  # 1575.420
+        self.freq_spin.setSuffix(" MHz")
         freq_row.addWidget(self.freq_spin)
-        self.freq_mhz_label = QLabel("1575.420 MHz")
-        self.freq_mhz_label.setStyleSheet("color:#00ffa3;")
-        freq_row.addWidget(self.freq_mhz_label)
         g_freq.addLayout(freq_row)
 
         preset_row = QHBoxLayout()
@@ -703,7 +703,7 @@ class GhostSignal(QMainWindow):
             btn = QPushButton(label)
             btn.setFixedHeight(22)
             btn.setStyleSheet("font-size:9px; padding:1px 4px;")
-            btn.clicked.connect(lambda _, h=hz: self.freq_spin.setValue(h))
+            btn.clicked.connect(lambda _, h=hz: self.freq_spin.setValue(h / 1e6))
             preset_row.addWidget(btn)
         g_freq.addLayout(preset_row)
         layout.addWidget(grp_freq)
@@ -892,8 +892,8 @@ class GhostSignal(QMainWindow):
         self._update_cli()
         self._update_status()
 
-    def _on_freq_change(self, hz: int):
-        self.freq_mhz_label.setText(f"{hz/1e6:.3f} MHz")
+    def _on_freq_change(self, mhz: float):
+        # freq_spin now stores MHz directly
         self._update_cli()
 
     def _get_transport(self) -> str:
@@ -930,7 +930,7 @@ class GhostSignal(QMainWindow):
         self.sim_worker.start()
 
         self._log("▶ Transmitting GPS signal", "success")
-        self._log(f"  device={self._get_device_name()}  freq={self.freq_spin.value()/1e6:.3f}MHz  gain={self.gain_slider.value()}dB", "info")
+        self._log(f"  device={self._get_device_name()}  freq={self.freq_spin.value():.3f}MHz  gain={self.gain_slider.value()}dB", "info")
 
         # Show CLI and optionally run if tools available
         self._update_cli()
@@ -974,7 +974,8 @@ class GhostSignal(QMainWindow):
             return
 
         wp = self.waypoints[0]
-        freq = self.freq_spin.value()
+        freq_mhz = self.freq_spin.value()          # MHz (float)
+        freq_hz = int(round(freq_mhz * 1e6))       # Hz (int) for CLI args
         gain = self.gain_slider.value()
         sr = self._get_sample_rate()
         device = self.device_combo.currentIndex()
@@ -1003,7 +1004,7 @@ class GhostSignal(QMainWindow):
             lines += [
                 "# Step 3: Transmit with HackRF One",
                 f"hackrf_transfer -t gps_sim.bin \\",
-                f"  -f {freq} \\",
+                f"  -f {freq_hz} \\",
                 f"  -s {sr} \\",
                 f"  -a 1 -x {gain} \\",
                 f"  -R",
@@ -1013,7 +1014,7 @@ class GhostSignal(QMainWindow):
                 "# Step 3: Transmit with LimeSDR (SoapySDR)",
                 f'SoapySDRUtil --args="driver=lime" \\',
                 f'  --direction=TX --chan=0 \\',
-                f"  --freq={freq} --rate={sr} \\",
+                f"  --freq={freq_hz} --rate={sr} \\",
                 f"  --gain={gain} --file=gps_sim.bin",
             ]
 
@@ -1044,7 +1045,7 @@ class GhostSignal(QMainWindow):
                 "speed_kmh": self.speed_spin.value(),
                 "start_time": self.start_time.dateTime().toString(Qt.DateFormat.ISODate),
                 "waypoints": self.waypoints,
-                "freq": self.freq_spin.value(),
+                "freq_mhz": self.freq_spin.value(),  # stored as MHz
                 "gain": self.gain_slider.value(),
                 "sample_rate": self._get_sample_rate(),
                 "device": self.device_combo.currentIndex(),
@@ -1063,7 +1064,12 @@ class GhostSignal(QMainWindow):
                 if t in modes:
                     self.transport_combo.setCurrentIndex(modes.index(t))
                 self.speed_spin.setValue(data.get("speed_kmh", 60))
-                self.freq_spin.setValue(data.get("freq", GPS_L1_HZ))
+                # Support both old Hz format and new MHz format
+                saved_freq = data.get("freq_mhz") or data.get("freq", GPS_L1_HZ)
+                # If value looks like Hz (> 1000), convert to MHz
+                if saved_freq > 1000:
+                    saved_freq = saved_freq / 1e6
+                self.freq_spin.setValue(saved_freq)
                 self.gain_slider.setValue(data.get("gain", 30))
                 self.device_combo.setCurrentIndex(data.get("device", 0))
                 self.waypoints = data.get("waypoints", [])
@@ -1095,7 +1101,7 @@ class GhostSignal(QMainWindow):
     def _update_status(self):
         state = "TRANSMITTING" if self.transmitting else "IDLE"
         dev = self._get_device_name().upper()
-        freq = f"{self.freq_spin.value()/1e6:.3f} MHz"
+        freq = f"{self.freq_spin.value():.3f} MHz"
         mode = self._get_transport().upper()
         wpts = len(self.waypoints)
         dist = f"  |  DIST: {self.route_distance_km:.2f} km" if self.route_distance_km > 0 else ""
