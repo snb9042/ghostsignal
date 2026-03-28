@@ -290,12 +290,13 @@ MAP_HTML = """<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8"/>
+<!-- QWebChannel bridge — MUST load before any pyBridge calls -->
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   html, body { margin:0; padding:0; height:100%; background:#090b0f; }
   #map { width:100%; height:100%; }
-  /* CartoDB dark_all tiles are natively dark — no CSS filter needed */
   .leaflet-control-zoom a {
     background: #131920 !important;
     color: #00ffa3 !important;
@@ -309,15 +310,75 @@ MAP_HTML = """<!DOCTYPE html>
     font-size: 11px;
   }
   .leaflet-popup-tip { background: #131920 !important; }
+  /* Native right-click context menu */
+  #ctx-menu {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    background: #131920;
+    border: 1px solid #1a2230;
+    border-radius: 4px;
+    min-width: 180px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.7);
+    padding: 4px 0;
+    font-family: monospace;
+    font-size: 11px;
+  }
+  #ctx-menu .ctx-header {
+    color: #3a4a5a;
+    font-size: 9px;
+    letter-spacing: 1px;
+    padding: 4px 12px 2px 12px;
+    border-bottom: 1px solid #1a2230;
+    margin-bottom: 3px;
+  }
+  #ctx-menu button {
+    display: block;
+    width: 100%;
+    background: transparent;
+    border: none;
+    padding: 7px 14px;
+    cursor: pointer;
+    font-family: monospace;
+    font-size: 11px;
+    text-align: left;
+    transition: background 0.1s;
+  }
+  #ctx-menu button:hover { background: #1a2a1a; }
+  #ctx-menu .btn-wp    { color: #00ffa3; }
+  #ctx-menu .btn-start { color: #00ffa3; }
+  #ctx-menu .btn-end   { color: #ff4444; }
+  #ctx-menu .btn-copy  { color: #888; }
+  #ctx-menu .divider   { height: 1px; background: #1a2230; margin: 3px 0; }
 </style>
 </head>
 <body>
 <div id="map"></div>
+<!-- Native DOM context menu (avoids Leaflet popup conflicts) -->
+<div id="ctx-menu">
+  <div class="ctx-header" id="ctx-coords">0.00000, 0.00000</div>
+  <button class="btn-wp"    id="btn-add">&#43; Add Waypoint Here</button>
+  <button class="btn-start" id="btn-start">&#9654; Set as Start Point</button>
+  <button class="btn-end"   id="btn-end">&#9632; Set as End Point</button>
+  <div class="divider"></div>
+  <button class="btn-copy"  id="btn-copy">&#128203; Copy Coordinates</button>
+</div>
 <script>
-var map = L.map('map', {center:[42.7,25.5], zoom:7});
-// CartoDB Voyager — no referer restrictions, dark-friendly
+// ── QWebChannel bootstrap ──────────────────────────────────────────────────
+window.pyBridge = null;
+new QWebChannel(qt.webChannelTransport, function(channel) {
+  window.pyBridge = channel.objects.pyBridge;
+  // Invalidate map size after channel is ready (fixes blank tile issue)
+  if (window._map) { window._map.invalidateSize(); }
+});
+
+// ── Leaflet map ────────────────────────────────────────────────────────────
+var map = L.map('map', { center:[42.7,25.5], zoom:7, contextmenu: false });
+window._map = map;  // expose for invalidateSize above
+
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   maxZoom: 19,
+  subdomains: 'abcd',
   attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap contributors'
 }).addTo(map);
 
@@ -375,39 +436,55 @@ function clearPosition() {
   if (posMarker) { posMarker.remove(); posMarker = null; }
 }
 
+// ── Left-click: add waypoint ───────────────────────────────────────────────
 map.on('click', function(e) {
+  hideCtxMenu();
   if (window.pyBridge) window.pyBridge.onMapClick(e.latlng.lat, e.latlng.lng);
 });
 
-// Right-click context menu
-var ctxMenu = null;
+// ── Native right-click context menu ───────────────────────────────────────
+var ctxMenu = document.getElementById('ctx-menu');
+var _ctxLat = 0, _ctxLng = 0;
+
+function hideCtxMenu() {
+  ctxMenu.style.display = 'none';
+}
+
+function sendCtx(action) {
+  hideCtxMenu();
+  if (window.pyBridge) window.pyBridge.onMapRightClick(action, _ctxLat, _ctxLng);
+}
+
+document.getElementById('btn-add').onclick   = function() { sendCtx('add_waypoint'); };
+document.getElementById('btn-start').onclick = function() { sendCtx('set_start'); };
+document.getElementById('btn-end').onclick   = function() { sendCtx('set_end'); };
+document.getElementById('btn-copy').onclick  = function() { sendCtx('copy_coords'); };
+
+// Hide on any click elsewhere
+document.addEventListener('click', function(ev) {
+  if (!ctxMenu.contains(ev.target)) hideCtxMenu();
+});
+document.addEventListener('keydown', function(ev) {
+  if (ev.key === 'Escape') hideCtxMenu();
+});
+
+// Intercept Leaflet right-click
 map.on('contextmenu', function(e) {
   e.originalEvent.preventDefault();
-  if (ctxMenu) { ctxMenu.remove(); }
-  var lat = e.latlng.lat;
-  var lng = e.latlng.lng;
-  var popup = L.popup({ closeButton: true, className: 'ctx-popup' })
-    .setLatLng(e.latlng)
-    .setContent(
-      '<div style="font-family:monospace;font-size:11px;min-width:160px;">'
-      + '<div style="color:#00ffa3;margin-bottom:6px;letter-spacing:1px;">CONTEXT MENU</div>'
-      + '<div style="color:#aaa;font-size:9px;margin-bottom:8px;">' + lat.toFixed(5) + ', ' + lng.toFixed(5) + '</div>'
-      + '<button onclick="if(window.pyBridge){window.pyBridge.onMapRightClick(\'add_waypoint\','+lat+','+lng+');}" '
-      + 'style="display:block;width:100%;margin-bottom:4px;background:#131920;border:1px solid #00ffa3;color:#00ffa3;padding:5px 8px;cursor:pointer;font-family:monospace;font-size:11px;text-align:left;">'
-      + '&#43; Add Waypoint Here</button>'
-      + '<button onclick="if(window.pyBridge){window.pyBridge.onMapRightClick(\'set_start\','+lat+','+lng+');}" '
-      + 'style="display:block;width:100%;margin-bottom:4px;background:#131920;border:1px solid #ffb800;color:#ffb800;padding:5px 8px;cursor:pointer;font-family:monospace;font-size:11px;text-align:left;">'
-      + '&#9654; Set as Start Point</button>'
-      + '<button onclick="if(window.pyBridge){window.pyBridge.onMapRightClick(\'set_end\','+lat+','+lng+');}" '
-      + 'style="display:block;width:100%;margin-bottom:4px;background:#131920;border:1px solid #ff4444;color:#ff4444;padding:5px 8px;cursor:pointer;font-family:monospace;font-size:11px;text-align:left;">'
-      + '&#9632; Set as End Point</button>'
-      + '<button onclick="if(window.pyBridge){window.pyBridge.onMapRightClick(\'copy_coords\','+lat+','+lng+');}" '
-      + 'style="display:block;width:100%;background:#131920;border:1px solid #3a4a5a;color:#3a4a5a;padding:5px 8px;cursor:pointer;font-family:monospace;font-size:11px;text-align:left;">'
-      + '&#128203; Copy Coordinates</button>'
-      + '</div>'
-    )
-    .openOn(map);
-  ctxMenu = popup;
+  e.originalEvent.stopPropagation();
+  _ctxLat = e.latlng.lat;
+  _ctxLng = e.latlng.lng;
+  document.getElementById('ctx-coords').textContent = _ctxLat.toFixed(5) + ', ' + _ctxLng.toFixed(5);
+  // Position the menu at mouse coords (fixed positioning)
+  var mx = e.originalEvent.clientX;
+  var my = e.originalEvent.clientY;
+  ctxMenu.style.left = mx + 'px';
+  ctxMenu.style.top  = my + 'px';
+  ctxMenu.style.display = 'block';
+  // Clamp to viewport
+  var r = ctxMenu.getBoundingClientRect();
+  if (r.right  > window.innerWidth)  ctxMenu.style.left = (mx - r.width)  + 'px';
+  if (r.bottom > window.innerHeight) ctxMenu.style.top  = (my - r.height) + 'px';
 });
 </script>
 </body>
