@@ -1009,8 +1009,7 @@ class GhostSignal(QMainWindow):
     @pyqtSlot(str, float, float)
     def _on_map_right_click(self, action: str, lat: float, lng: float):
         """Handle right-click context menu actions from the map."""
-        # Close the popup via JS
-        self.web_view.page().runJavaScript("if(ctxMenu){ctxMenu.remove();ctxMenu=null;}")
+        # Menu is already hidden by sendCtx() in JS before this fires — nothing to do here
 
         if action == "add_waypoint":
             self.waypoints.append({"lat": lat, "lng": lng})
