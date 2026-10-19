@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ghostsignal"
+version = "2.0.0"
+description = "GNSS signal simulation & SDR transmission GUI for authorized testing"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = ["PyQt6>=6.6.0", "PyQt6-WebEngine>=6.6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+ghostsignal-cli = "ghostsignal.headless.cli:main"
+
+[project.gui-scripts]
+ghostsignal = "ghostsignal.app:main"
+
+[tool.setuptools.packages.find]
+include = ["ghostsignal*"]
+
+[tool.setuptools.package-data]
+"ghostsignal.ui" = ["assets/*"]
