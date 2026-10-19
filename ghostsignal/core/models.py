@@ -1,6 +1,6 @@
 from __future__ import annotations
 import enum
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 
 class Constellation(enum.Enum):
     GPS = "gps"
@@ -38,6 +38,9 @@ class TrajectoryPoint:
     lat: float
     lng: float
     alt: float
+    def to_dict(self): return {"t_s": self.t_s, "lat": self.lat, "lng": self.lng, "alt": self.alt}
+    @classmethod
+    def from_dict(cls, d): return cls(d["t_s"], d["lat"], d["lng"], d["alt"])
 
 @dataclass
 class SpeedProfile:

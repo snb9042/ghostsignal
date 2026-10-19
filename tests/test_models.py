@@ -1,6 +1,5 @@
-import datetime as dt
 from ghostsignal.core.models import (
-    Waypoint, Constellation, SpeedProfile, SdrConfig, Session,
+    Waypoint, Constellation, SpeedProfile, SdrConfig, Session, TrajectoryPoint,
 )
 
 def test_waypoint_roundtrip():
@@ -29,3 +28,7 @@ def test_session_roundtrip():
     )
     assert Session.from_dict(s.to_dict()) == s
     assert s.schema == "2"
+
+def test_trajectorypoint_roundtrip():
+    p = TrajectoryPoint(12.5, 42.1, 23.2, 150.0)
+    assert TrajectoryPoint.from_dict(p.to_dict()) == p
