@@ -49,3 +49,17 @@ def test_chunking_respects_cap():
     chunks = motion.chunk_trajectory(traj, cap_s=300)
     assert all((c[-1].t_s - c[0].t_s) <= 300.0 + 1e-6 for c in chunks)
     assert sum(len(c) for c in chunks) == len(traj)
+
+def test_trapezoidal_zero_cruise_terminates():
+    r = _line_route(0.05)   # 50 m
+    sp = SpeedProfile("trapezoidal", 0.0, accel_ms2=1.0, decel_ms2=1.0)
+    traj = motion.build_trajectory(r, sp, hz=10)
+    assert 0 < len(traj) < 100000        # bounded -> loop terminated
+    assert traj[-1].t_s >= traj[0].t_s
+
+def test_nmea_timestamps_resolve_subsecond():
+    r = _line_route(0.1)
+    traj = motion.build_trajectory(r, SpeedProfile("constant", 36.0), hz=10)
+    lines = motion.to_nmea_gga(traj, "2026-10-19T12:00:00Z").splitlines()
+    stamps = [ln.split(",")[1] for ln in lines[:10]]   # t=0.0..0.9
+    assert len(set(stamps)) == len(stamps)             # all distinct

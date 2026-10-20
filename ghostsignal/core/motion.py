@@ -1,6 +1,6 @@
 from __future__ import annotations
 import datetime as dt
-from .models import Route, SpeedProfile, TrajectoryPoint, Waypoint
+from .models import Route, SpeedProfile, TrajectoryPoint
 from .geo import haversine_m, interpolate, lla_to_ecef
 from ..constants import MOTION_HZ, USER_MOTION_CAP_S
 
@@ -31,7 +31,7 @@ def _speed_at(d, total, sp: SpeedProfile):
         return max((2 * a * d) ** 0.5, 0.1)
     if d > total - d_dec:
         return max((2 * de * max(total - d, 0)) ** 0.5, 0.1)
-    return cruise
+    return max(cruise, 0.1)
 
 def build_trajectory(route: Route, sp: SpeedProfile, hz: int = MOTION_HZ):
     poly = route_polyline(route)
@@ -87,7 +87,8 @@ def to_nmea_gga(traj, start_utc: str) -> str:
     base = dt.datetime.fromisoformat(start_utc.replace("Z", "+00:00"))
     lines = []
     for p in traj:
-        tstamp = (base + dt.timedelta(seconds=p.t_s)).strftime("%H%M%S.00")
+        _t = base + dt.timedelta(seconds=p.t_s)
+        tstamp = _t.strftime("%H%M%S") + f".{_t.microsecond // 10000:02d}"
         lat_s, ns = _dm(p.lat, True)
         lng_s, ew = _dm(p.lng, False)
         body = f"GPGGA,{tstamp},{lat_s},{ns},{lng_s},{ew},1,08,0.9,{p.alt:.1f},M,0.0,M,,"
