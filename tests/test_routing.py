@@ -1,4 +1,3 @@
-import pytest
 from ghostsignal.core import routing
 from ghostsignal.core.models import Waypoint
 

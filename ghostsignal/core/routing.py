@@ -20,7 +20,7 @@ def _straight(waypoints: list[Waypoint]) -> Route:
     dist_m = sum(haversine_m(waypoints[i].lat, waypoints[i].lng,
                              waypoints[i + 1].lat, waypoints[i + 1].lng)
                  for i in range(len(waypoints) - 1))
-    return Route(waypoints, None, dist_m / 1000.0, "straight")
+    return Route(list(waypoints), None, dist_m / 1000.0, "straight")
 
 def build_route(waypoints, transport, fetch=urlopen_json) -> Route:
     if len(waypoints) < 2:
