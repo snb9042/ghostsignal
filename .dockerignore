@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.bin
+*.nav
+docs/
+tests/
