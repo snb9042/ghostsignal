@@ -389,9 +389,11 @@ class MainWindow(QMainWindow):
         if self.pipeline_worker is not None:
             self.pipeline_worker.stop()
             self.pipeline_worker.wait()
+            self.pipeline_worker = None
         if self.playback_worker is not None:
             self.playback_worker.stop()
             self.playback_worker.wait()
+            self.playback_worker = None
         self.transmitting = False
         self.right_panel.set_transmitting(False)
         self._update_tx_badge(False)
@@ -411,8 +413,19 @@ class MainWindow(QMainWindow):
         self._update_status()
 
     def _on_pipeline_finished(self, rc: int):
+        # finished_rc is emitted as the last line of PipelineWorker.run(), and
+        # PlaybackWorker.stop() only sets a flag that run() checks after its
+        # time.sleep(0.2) -- so both threads can still be alive for a moment
+        # here. Mirror _stop_transmit's wait()+null-out so a fast re-transmit
+        # can never drop the only reference to a still-running QThread (which
+        # would raise "QThread: Destroyed while thread is still running").
         if self.playback_worker is not None:
             self.playback_worker.stop()
+            self.playback_worker.wait()
+            self.playback_worker = None
+        if self.pipeline_worker is not None:
+            self.pipeline_worker.wait()
+            self.pipeline_worker = None
         self.transmitting = False
         self.right_panel.set_transmitting(False)
         self._update_tx_badge(False)
