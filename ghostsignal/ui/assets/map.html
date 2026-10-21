@@ -1,0 +1,93 @@
+<html>
+<head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#090b0f; }
+  #map { width:100%; height:100%; }
+  /* CartoDB dark_all tiles are natively dark — no CSS filter needed */
+  .leaflet-control-zoom a {
+    background: #131920 !important;
+    color: #00ffa3 !important;
+    border-color: rgba(0,255,163,0.3) !important;
+  }
+  .leaflet-popup-content-wrapper {
+    background: #131920 !important;
+    color: #00ffa3 !important;
+    border: 1px solid rgba(0,255,163,0.3) !important;
+    font-family: monospace;
+    font-size: 11px;
+  }
+  .leaflet-popup-tip { background: #131920 !important; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+var map = L.map('map', {center:[42.7,25.5], zoom:7});
+// CartoDB Voyager — no referer restrictions, dark-friendly
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap contributors'
+}).addTo(map);
+
+var markers = [];
+var routeLayer = null;
+var posMarker = null;
+
+function addMarker(lat, lng, idx, isFirst, isLast) {
+  var color = isFirst ? '#00ffa3' : isLast ? '#ff4444' : '#ffb800';
+  var icon = L.divIcon({
+    html: '<div style="width:22px;height:22px;border-radius:50%;background:' + color + '22;border:2px solid ' + color + ';display:flex;align-items:center;justify-content:center;font-size:9px;font-family:monospace;font-weight:bold;color:' + color + ';box-shadow:0 0 8px ' + color + '66;">' + (idx+1) + '</div>',
+    iconSize: [22, 22], iconAnchor: [11, 11], className: ''
+  });
+  var m = L.marker([lat, lng], {icon: icon, draggable: true}).addTo(map);
+  m.bindPopup('WP ' + (idx+1) + '<br/>' + lat.toFixed(5) + ', ' + lng.toFixed(5));
+  m.on('dragend', function(e) {
+    var ll = e.target.getLatLng();
+    if (window.pyBridge) window.pyBridge.onMarkerDragged(idx, ll.lat, ll.lng);
+  });
+  markers.push(m);
+}
+
+function clearMarkers() {
+  markers.forEach(function(m){ m.remove(); });
+  markers = [];
+}
+
+function drawRoute(geojson) {
+  if (routeLayer) { routeLayer.remove(); routeLayer = null; }
+  if (!geojson) return;
+  routeLayer = L.geoJSON(geojson, {
+    style: { color: '#00ffa3', weight: 3, opacity: 0.85 }
+  }).addTo(map);
+  map.fitBounds(routeLayer.getBounds(), {padding:[30,30]});
+}
+
+function drawStraightLine(waypoints) {
+  if (routeLayer) { routeLayer.remove(); routeLayer = null; }
+  var latlngs = waypoints.map(function(w){ return [w.lat, w.lng]; });
+  routeLayer = L.polyline(latlngs, {color:'#ff8800', weight:2, dashArray:'8 4', opacity:0.8}).addTo(map);
+  if (latlngs.length > 1) map.fitBounds(routeLayer.getBounds(), {padding:[30,30]});
+}
+
+function updatePosition(lat, lng) {
+  if (posMarker) { posMarker.remove(); posMarker = null; }
+  var icon = L.divIcon({
+    html: '<div style="width:18px;height:18px;border-radius:50%;background:#00ffa3;border:2px solid white;box-shadow:0 0 16px #00ffa3,0 0 32px #00ffa366;"></div>',
+    iconSize: [18,18], iconAnchor: [9,9], className: ''
+  });
+  posMarker = L.marker([lat, lng], {icon:icon, zIndexOffset:1000}).addTo(map);
+  map.panTo([lat, lng], {animate:true, duration:0.5});
+}
+
+function clearPosition() {
+  if (posMarker) { posMarker.remove(); posMarker = null; }
+}
+
+map.on('click', function(e) {
+  if (window.pyBridge) window.pyBridge.onMapClick(e.latlng.lat, e.latlng.lng);
+});
+</script>
+</body>
