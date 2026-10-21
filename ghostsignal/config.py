@@ -8,6 +8,7 @@ _ENV = {"gps": "GPS_SDR_SIM", "galileo": "GALILEO_SDR_SIM",
 _BARE = {"gps": "gps-sdr-sim", "galileo": "galileo-sdr-sim",
          "gnss_multi": "gnss-sim", "hackrf": "hackrf_transfer",
          "soapy": "SoapySDRUtil"}
+DEFAULT_TOOL_KEYS = {"gps", "galileo", "gnss_multi", "hackrf", "soapy"}
 _WIN_DIRS = [r"C:\Program Files\PothosSDR\bin"]
 
 class ToolConfig:
