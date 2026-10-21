@@ -4,7 +4,7 @@ import shlex
 OUT_BIN = "gps_sim.bin"
 
 def _fmt(argv) -> str:
-    return " ".join(shlex.quote(a) if (" " in a) else a for a in argv)
+    return " ".join(shlex.quote(a) for a in argv)
 
 def build_script(*, generator, transmitter, nav_file, motion_file, motion_fmt,
                  start_time, duration_s, sdr, planner_note: bool) -> str:

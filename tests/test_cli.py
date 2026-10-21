@@ -27,3 +27,12 @@ def test_script_quotes_spaces():
                      nav_file="n", motion_file="m", motion_fmt="llh",
                      start_time="t", duration_s=10, sdr=sdr, planner_note=False)
     assert "'/path with space/gps-sdr-sim'" in s
+
+def test_script_quotes_shell_metacharacters():
+    import shlex
+    sdr = SdrConfig("HackRF One", Constellation.GPS, 1_575_420_000, 2_600_000, 30)
+    s = build_script(generator=GpsSdrSim("gps-sdr-sim"),
+                     transmitter=HackRfTransmitter("hackrf_transfer"),
+                     nav_file="brdc.nav;reboot", motion_file="m.csv", motion_fmt="llh",
+                     start_time="t", duration_s=10, sdr=sdr, planner_note=False)
+    assert shlex.quote("brdc.nav;reboot") in s   # dangerous arg is shell-quoted, not injected
