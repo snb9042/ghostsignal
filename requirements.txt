@@ -1,3 +1,4 @@
+# Runtime deps are declared in pyproject.toml. For a dev install:
+#   python -m pip install -e ".[dev]"
 PyQt6>=6.6.0
 PyQt6-WebEngine>=6.6.0
-requests>=2.31.0
