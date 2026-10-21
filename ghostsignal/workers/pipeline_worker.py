@@ -23,7 +23,9 @@ class PipelineWorker(QThread):
         with open(self.plan.motion_path, "w", encoding="utf-8") as f:
             f.write(self.plan.motion_text)
         self.stage.emit("generate")
-        if self._abort: return
+        if self._abort:
+            self.finished_rc.emit(-1)
+            return
         rc = self._run_step(self.plan.gen_argv)
         if rc != 0 or self._abort:
             self.finished_rc.emit(rc); return
