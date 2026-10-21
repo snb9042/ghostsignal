@@ -16,7 +16,7 @@ class ToolConfig:
         self.overrides = dict(overrides or {})
 
     def resolve_tool(self, key: str) -> str:
-        if key in self.overrides:
+        if self.overrides.get(key):
             return self.overrides[key]
         env = _ENV.get(key)
         if env and os.environ.get(env):

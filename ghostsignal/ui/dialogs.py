@@ -71,9 +71,10 @@ class SettingsDialog(QDialog):
     Fields are left blank unless an explicit override is passed in
     ``initial`` or was previously saved; the auto-detected path (env var /
     PATH / PothosSDR dir, via ``ToolConfig.resolve_tool``) is shown only as
-    placeholder text, so an untouched field means "use auto-detection" and
-    ``values()`` won't freeze a one-time auto-detected path in as a
-    permanent override.
+    placeholder text. A blank field means "no override (fall back to
+    env/PATH/known dirs)" — ``ToolConfig.resolve_tool`` treats a falsy
+    override (``""``) as absent, so ``values()`` won't freeze a one-time
+    auto-detected path in as a permanent override.
     """
 
     def __init__(self, parent=None, initial: dict | None = None):

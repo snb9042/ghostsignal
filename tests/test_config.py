@@ -17,3 +17,8 @@ def test_default_bare_command(monkeypatch):
 def test_default_tool_keys():
     from ghostsignal.config import DEFAULT_TOOL_KEYS
     assert DEFAULT_TOOL_KEYS == {"gps", "galileo", "gnss_multi", "hackrf", "soapy"}
+
+def test_blank_override_falls_through(monkeypatch):
+    monkeypatch.delenv("GPS_SDR_SIM", raising=False)
+    c = ToolConfig(overrides={"gps": ""})
+    assert c.resolve_tool("gps") == "gps-sdr-sim"
