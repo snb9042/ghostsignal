@@ -16,3 +16,8 @@ def test_map_html_exposes_js_api():
 def test_style_qss_has_theme_colors():
     qss = _read("style.qss")
     assert "#00ffa3" in qss and "QPushButton" in qss
+
+
+def test_map_html_has_doctype():
+    html = (res.files("ghostsignal.ui") / "assets" / "map.html").read_text(encoding="utf-8")
+    assert html.lstrip().startswith("<!DOCTYPE html>")
