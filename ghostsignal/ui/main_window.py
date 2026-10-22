@@ -164,6 +164,7 @@ class MainWindow(QMainWindow):
 
         mp.bridge.map_clicked.connect(self._on_map_click)
         mp.bridge.marker_dragged.connect(self._on_marker_dragged)
+        mp.bridge.map_right_clicked.connect(self._on_map_right_click)
 
         lp.signals.cleared.connect(self._on_clear)
         lp.signals.save_requested.connect(self._on_save)
@@ -192,6 +193,31 @@ class MainWindow(QMainWindow):
             self.waypoints[idx] = Waypoint(lat, lng, self.waypoints[idx].alt)
             self._refresh_waypoints()
             self._fetch_route()
+
+    @pyqtSlot(str, float, float)
+    def _on_map_right_click(self, action: str, lat: float, lng: float):
+        if action == "add_waypoint":
+            self.waypoints.append(Waypoint(lat, lng))
+            self._refresh_waypoints(); self._fetch_route()
+            self._log(f"WP {len(self.waypoints)} added (right-click): {lat:.5f}, {lng:.5f}")
+        elif action == "set_start":
+            if self.waypoints:
+                self.waypoints[0] = Waypoint(lat, lng, self.waypoints[0].alt)
+            else:
+                self.waypoints.insert(0, Waypoint(lat, lng))
+            self._refresh_waypoints(); self._fetch_route()
+            self._log(f"Start point set: {lat:.5f}, {lng:.5f}", "success")
+        elif action == "set_end":
+            if len(self.waypoints) > 1:
+                self.waypoints[-1] = Waypoint(lat, lng, self.waypoints[-1].alt)
+            else:
+                self.waypoints.append(Waypoint(lat, lng))
+            self._refresh_waypoints(); self._fetch_route()
+            self._log(f"End point set: {lat:.5f}, {lng:.5f}", "warn")
+        elif action == "copy_coords":
+            from PyQt6.QtWidgets import QApplication
+            QApplication.clipboard().setText(f"{lat:.6f}, {lng:.6f}")
+            self._log(f"Copied: {lat:.6f}, {lng:.6f}")
 
     def _refresh_waypoints(self):
         """Sync the waypoint list/count/markers/CLI/status to ``self.waypoints``.

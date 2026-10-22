@@ -64,3 +64,11 @@ def test_mainwindow_has_settings_menu():
     menu_actions = tools_menu.actions()
     settings_found = any(action.text() == "&Settings" for action in menu_actions)
     assert settings_found
+
+def test_right_click_add_waypoint():
+    from ghostsignal.ui.main_window import MainWindow
+    w = MainWindow(map_panel_factory=StubMapPanel)
+    n0 = len(w.waypoints)
+    w._on_map_right_click("add_waypoint", 42.0, 23.0)
+    assert len(w.waypoints) == n0 + 1
+    assert (w.waypoints[-1].lat, w.waypoints[-1].lng) == (42.0, 23.0)
