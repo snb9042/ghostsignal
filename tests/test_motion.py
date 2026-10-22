@@ -1,4 +1,5 @@
 # tests/test_motion.py
+import random
 from ghostsignal.core import motion
 from ghostsignal.core.models import Route, Waypoint, SpeedProfile
 
@@ -63,3 +64,29 @@ def test_nmea_timestamps_resolve_subsecond():
     lines = motion.to_nmea_gga(traj, "2026-10-19T12:00:00Z").splitlines()
     stamps = [ln.split(",")[1] for ln in lines[:10]]   # t=0.0..0.9
     assert len(set(stamps)) == len(stamps)             # all distinct
+
+def test_randomise_reaches_end_and_varies():
+    from ghostsignal.core.geo import haversine_m
+    r = _line_route(2.0)
+    sp = SpeedProfile("constant", 60.0, randomise=True, variance_pct=30)
+    traj = motion.build_trajectory(r, sp, hz=10, rng=random.Random(42))
+    assert abs(traj[-1].lng - (2.0 / 111.195)) < 1e-3          # still reaches endpoint
+    gaps = [haversine_m(traj[i].lat, traj[i].lng, traj[i+1].lat, traj[i+1].lng)
+            for i in range(min(60, len(traj) - 1))]
+    assert max(gaps) - min(gaps) > 1e-6                        # non-uniform spacing (speed varied)
+
+def test_randomise_deterministic_with_seed():
+    r = _line_route(1.0)
+    sp = SpeedProfile("constant", 60.0, randomise=True, variance_pct=30)
+    a = motion.build_trajectory(r, sp, hz=10, rng=random.Random(7))
+    b = motion.build_trajectory(r, sp, hz=10, rng=random.Random(7))
+    assert [(p.lat, p.lng) for p in a] == [(p.lat, p.lng) for p in b]
+
+def test_non_randomise_unchanged():
+    # constant, no randomise -> uniform spacing (regression guard)
+    from ghostsignal.core.geo import haversine_m
+    r = _line_route(1.0)
+    traj = motion.build_trajectory(r, SpeedProfile("constant", 36.0), hz=10)
+    gaps = [haversine_m(traj[i].lat, traj[i].lng, traj[i+1].lat, traj[i+1].lng)
+            for i in range(5, min(40, len(traj) - 1))]
+    assert max(gaps) - min(gaps) < 1e-3                        # essentially uniform

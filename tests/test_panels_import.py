@@ -12,3 +12,5 @@ def test_panels_construct():
     assert rp.constellation_combo.count() == 4
     assert hasattr(AuthorizationDialog, "confirm")
     assert hasattr(SettingsDialog, "values")
+    assert hasattr(lp, "randomise_chk")
+    assert hasattr(lp, "variance_slider")

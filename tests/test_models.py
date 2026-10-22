@@ -32,3 +32,12 @@ def test_session_roundtrip():
 def test_trajectorypoint_roundtrip():
     p = TrajectoryPoint(12.5, 42.1, 23.2, 150.0)
     assert TrajectoryPoint.from_dict(p.to_dict()) == p
+
+def test_speedprofile_randomise_roundtrip():
+    sp = SpeedProfile("constant", 60.0, randomise=True, variance_pct=25.0)
+    assert SpeedProfile.from_dict(sp.to_dict()) == sp
+
+def test_speedprofile_old_dict_defaults():
+    sp = SpeedProfile.from_dict({"kind": "constant", "cruise_kmh": 60.0,
+                                 "accel_ms2": None, "decel_ms2": None})
+    assert sp.randomise is False and sp.variance_pct == 20.0

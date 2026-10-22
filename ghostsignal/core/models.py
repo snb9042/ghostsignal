@@ -48,6 +48,8 @@ class SpeedProfile:
     cruise_kmh: float
     accel_ms2: float | None = None
     decel_ms2: float | None = None
+    randomise: bool = False
+    variance_pct: float = 20.0
     def to_dict(self): return asdict(self)
     @classmethod
     def from_dict(cls, d): return cls(**d)

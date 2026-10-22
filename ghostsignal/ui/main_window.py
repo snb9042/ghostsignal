@@ -305,11 +305,15 @@ class MainWindow(QMainWindow):
 
     def _current_speed_profile(self) -> SpeedProfile:
         lp = self.left_panel
+        randomise = lp.randomise_chk.isChecked()
+        variance = float(lp.variance_slider.value())
         kind = lp.speed_profile_kind()
         if kind == "trapezoidal":
             return SpeedProfile("trapezoidal", float(lp.cruise_spin.value()),
-                                accel_ms2=lp.accel_spin.value(), decel_ms2=lp.decel_spin.value())
-        return SpeedProfile("constant", float(lp.cruise_spin.value()))
+                                accel_ms2=lp.accel_spin.value(), decel_ms2=lp.decel_spin.value(),
+                                randomise=randomise, variance_pct=variance)
+        return SpeedProfile("constant", float(lp.cruise_spin.value()),
+                            randomise=randomise, variance_pct=variance)
 
     def _current_sdr_config(self) -> SdrConfig:
         rp = self.right_panel

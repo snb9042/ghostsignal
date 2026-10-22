@@ -33,7 +33,7 @@ def _speed_at(d, total, sp: SpeedProfile):
         return max((2 * de * max(total - d, 0)) ** 0.5, 0.1)
     return max(cruise, 0.1)
 
-def build_trajectory(route: Route, sp: SpeedProfile, hz: int = MOTION_HZ):
+def build_trajectory(route: Route, sp: SpeedProfile, hz: int = MOTION_HZ, rng=None):
     poly = route_polyline(route)
     if len(poly) < 2:
         p = poly[0] if poly else (0.0, 0.0, 100.0)
@@ -41,6 +41,12 @@ def build_trajectory(route: Route, sp: SpeedProfile, hz: int = MOTION_HZ):
     segs = _segment_lengths(poly)
     total = sum(segs)
     dt_step = 1.0 / hz
+    import random as _random
+    if sp.randomise and rng is None:
+        rng = _random.Random()
+    _factor = 1.0          # current speed multiplier (random walk around 1.0)
+    _last_change = 0.0     # sim-time of last jitter
+    _CHANGE_INTERVAL = 3.0 # seconds between jitters
     traj, t, d = [], 0.0, 0.0
     while d <= total + 1e-6:
         # locate d on the polyline
@@ -55,6 +61,14 @@ def build_trajectory(route: Route, sp: SpeedProfile, hz: int = MOTION_HZ):
             alt = poly[idx][2] + (poly[idx + 1][2] - poly[idx][2]) * frac
         traj.append(TrajectoryPoint(round(t, 3), lat, lng, alt))
         v = _speed_at(d, total, sp)
+        if sp.randomise:
+            if t - _last_change >= _CHANGE_INTERVAL:
+                _maxd = sp.variance_pct / 100.0
+                _factor += rng.gauss(0, _maxd * 0.4)
+                _factor += (1.0 - _factor) * 0.15          # drift back to base
+                _factor = max(1.0 - _maxd, min(1.0 + _maxd, _factor))
+                _last_change = t
+            v = max(v * _factor, 0.1)
         d += v * dt_step
         t += dt_step
     return traj

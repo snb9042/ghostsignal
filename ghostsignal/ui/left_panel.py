@@ -9,6 +9,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QComboBox, QLabel,
     QPushButton, QSpinBox, QDoubleSpinBox, QDateTimeEdit, QListWidget,
+    QCheckBox, QSlider,
 )
 from PyQt6.QtCore import QObject, pyqtSignal, QDateTime, Qt
 from .widgets import labeled_group
@@ -103,6 +104,24 @@ class LeftPanel(QWidget):
         self.accel_row.setVisible(False)
         self.decel_row.setVisible(False)
         self.speed_kind_combo.currentIndexChanged.connect(self._on_speed_kind_change)
+
+        self.randomise_chk = QCheckBox("Randomise speed")
+        speed_layout.addWidget(self.randomise_chk)
+
+        var_row = QHBoxLayout()
+        var_row.addWidget(QLabel("Variance"))
+        self.variance_slider = QSlider(Qt.Orientation.Horizontal)
+        self.variance_slider.setRange(1, 80)
+        self.variance_slider.setValue(20)
+        self.variance_slider.setEnabled(False)
+        self.variance_val_lbl = QLabel("±20%")
+        var_row.addWidget(self.variance_slider)
+        var_row.addWidget(self.variance_val_lbl)
+        speed_layout.addLayout(var_row)
+
+        self.randomise_chk.toggled.connect(self.variance_slider.setEnabled)
+        self.variance_slider.valueChanged.connect(
+            lambda v: self.variance_val_lbl.setText(f"±{v}%"))
 
         layout.addWidget(labeled_group("SPEED", speed_widget))
 
