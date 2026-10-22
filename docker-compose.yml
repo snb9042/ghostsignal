@@ -1,0 +1,7 @@
+# docker-compose.yml
+services:
+  ghostsignal:
+    build: .
+    volumes:
+      - ./work:/work
+    command: ["run", "/work/session.json", "--generate-only", "--nav", "/work/brdc.nav", "--work-dir", "/work"]

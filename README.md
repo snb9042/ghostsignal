@@ -1,14 +1,45 @@
-# GhostSignal 🛰️
+# GhostSignal 🛰️ v2
 
-**GPS Spoofing & Route Simulation GUI for HackRF One and LimeSDR**
+**GNSS signal simulation & SDR transmission for authorized research, development, and testing.**
 
-GhostSignal is a professional desktop application for generating and transmitting spoofed GPS signals using SDR hardware. It provides a visual interface for picking exact coordinates on a map, designing multi-waypoint routes, selecting transport modes (walk, cycle, drive, boat, plane), and controlling HackRF / LimeSDR transmission parameters — all in one place.
+GhostSignal is a desktop application (PyQt6) for planning a GNSS route on a
+map, generating the corresponding baseband I/Q signal, and transmitting it
+with an SDR (HackRF One or LimeSDR). v2 is a full modular rewrite of the
+original single-file tool: the core logic (routing, motion, signal-generator
+and SDR command building, session persistence, RINEX handling) lives in a
+Qt-free `ghostsignal/core` + `ghostsignal/backends` + `ghostsignal/sdr`
+package tree that is unit-tested without a display, and a thin `ghostsignal/ui`
+layer on top of it drives the actual GUI. A `ghostsignal-cli` headless entry
+point runs the same pipeline with no Qt dependency at all.
 
-> ⚠️ **Legal notice:** GPS spoofing is regulated or illegal in most jurisdictions outside of shielded RF labs. This tool is intended strictly for **authorized research, development, and testing environments** such as Faraday-cage labs, official drone testing sites, and academic research with proper authorization. Never transmit without explicit legal permission.
+> ## ⚠️ Legal / authorization notice
+>
+> GhostSignal **transmits real RF energy** that mimics live GNSS signals.
+> Transmitting (or even radiating unintentionally) a spoofed GNSS signal
+> outside a properly shielded environment, or without explicit authorization,
+> is illegal in most jurisdictions and can interfere with safety-of-life
+> navigation systems (aviation, maritime, emergency services).
+>
+> **Use GhostSignal only in authorized research, development, and testing
+> environments** — Faraday-cage labs, sanctioned drone-test ranges, and
+> academic work carried out with proper permission. Never transmit outside a
+> shielded enclosure without explicit legal authorization.
+>
+> Before any **real** (non-planner) transmit, the application shows a modal
+> authorization dialog that requires you to affirmatively check "I am
+> authorized to transmit in a shielded/Faraday environment" before the OK
+> button is even enabled. This gate cannot be skipped from the GUI. The
+> headless CLI has no such gate — you are responsible for only driving it in
+> an authorized, shielded setup.
 
 ---
 
 ## Screenshots
+
+The screenshots below are from the v1 UI. v2 keeps the same dark "terminal"
+layout (left waypoint/session panel, center map, right SDR/CLI/log panel) and
+adds a constellation selector, a planner-only toggle, and an ephemeris
+download button to the right panel — not pictured here.
 
 ### Idle — Map & Controls
 ![Idle state](screenshot_idle.png)
@@ -21,265 +52,254 @@ GhostSignal is a professional desktop application for generating and transmittin
 
 ---
 
+## What's actually in v2
+
+| | v1 | v2 |
+|---|---|---|
+| Route playback | Cosmetic timer; `gps-sdr-sim` only ever got a **static** `-l lat,lng` fix | Real continuous moving-fix: a 10 Hz trajectory is written as a `gps-sdr-sim`/`galileo-sdr-sim` user-motion file (`-x`/`-u`) |
+| "TRANSMIT" button | Only animated a dot — the real work was a copy-paste shell script you ran by hand | Actually runs the generator and transmitter as child processes, with live log streaming and a hard Stop |
+| Multi-constellation | Claimed GLONASS/Galileo/BeiDou via frequency presets, but the only backend was GPS-only `gps-sdr-sim`, which always emits L1 C/A regardless of the selected frequency | GPS and Galileo are real, separate backends; GLONASS/BeiDou are real plugin seams to a configurable external multi-GNSS tool, clearly marked experimental (see below) |
+| Code | One ~1,180-line file | Modular package: `core/` (pure, no Qt), `backends/`, `sdr/`, `ui/`, `workers/`, `headless/` |
+
+---
+
 ## Features
 
-- 🗺️ **Interactive map** — click to place waypoints, drag to reposition them
-- 🛣️ **Real road routing** via OSRM (OpenStreetMap) — walk, cycle, drive modes use actual road geometry
-- ✈️ **All transport modes** — Walk / Cycle / Drive / Boat / Plane (straight-line for boat/plane)
-- 📅 **Simulation start time** — set exact GPS timestamp for the simulation
-- 📡 **HackRF One & LimeSDR** — switchable device, configurable TX gain (0–47 dB), frequency, and sample rate
-- 🔢 **GPS frequency presets** — L1 (1575.42 MHz), L2, L5, GLONASS
-- 🖥️ **Auto-generated CLI script** — copy or download a ready-to-run `gps-sdr-sim` + `hackrf_transfer` shell script
-- 💾 **Session save/load** — save waypoints, settings, and routes as JSON files
-- 📊 **Live position playback** — moving dot on the map follows the route during simulation
-- 🖥️ **Cross-platform** — Linux and Windows (PyQt6)
+- **Interactive map** — Leaflet map embedded via `QWebEngineView`; click to drop waypoints, drag to reposition, multiple waypoints per route.
+- **Real road routing** — walk/cycle/drive routes are fetched from the public OSRM API (actual road/path geometry); boat/plane use a straight-line great-circle route.
+- **Continuous route playback (the real v2 win)** — the route + speed profile is resampled into a 10 Hz trajectory and written as a `gps-sdr-sim`/`galileo-sdr-sim` **user-motion file**, so the generated signal is a genuinely moving fix along the whole route, not a single static point.
+- **Speed profiles** — constant speed, or a trapezoidal accel/cruise/decel profile (configurable accel/decel in m/s²).
+- **NMEA replay** — load a `.nmea`/`.txt`/`.log` file; `$GPGGA`/`$GNGGA` fixes are parsed into a route, bypassing OSRM entirely.
+- **Session save/load** — save waypoints, transport, speed profile, start time, and SDR settings as a JSON file (schema v2); loading an old v1-style session JSON is automatically migrated.
+- **RINEX ephemeris downloader** — "Download ephemeris" resolves the daily broadcast ephemeris for the session date and tries, in order: local cache → a no-auth BKG/IGS mirror → CDDIS. **CDDIS requires an Earthdata login**, and GhostSignal does not currently perform authenticated CDDIS requests — in practice the no-auth mirror satisfies most dates; if you need CDDIS specifically, download the file yourself and point `--nav`/the nav file field at it.
+- **Real HackRF / LimeSDR execution** — the generator and transmitter run as actual child processes (`QProcess` in the GUI, `subprocess` headless), with merged stdout/stderr streamed live to the on-screen log, and a hard Stop that kills both processes.
+- **Planner-only mode** — checked by default; generates and previews the exact CLI script without ever invoking the transmitter. Flip it off to arm a real transmit.
+- **Auto-generated CLI script** — the CLI tab always shows the exact two-step shell command (generate, then transmit) for the current configuration; Copy to clipboard or Save as `.sh`.
+- **Authorization gate** — see the legal notice above; required before any real (non-planner-only) transmit.
+- **Headless CLI** — `ghostsignal-cli` runs the identical pipeline against a saved session with no Qt import at all, for scripting/CI/Docker.
+
+### Frequency control vs. constellation — don't confuse them
+
+The right panel has a numeric TX frequency field with quick-set buttons
+(`L1`, `L2`, `L5`, `GLONASS`). These buttons only change the number handed to
+the SDR transmitter as its center frequency (`hackrf_transfer -f …`). They
+**do not** change what signal is generated — the GPS backend (`gps-sdr-sim`)
+always emits L1 C/A baseband content, regardless of what frequency you tune
+the radio to. To actually change which GNSS signal is produced, use the
+**Constellation** selector (GPS/Galileo/GLONASS/BeiDou), not the frequency
+presets. Leave the frequency at the GPS L1 default (1575.42 MHz) unless you
+have a specific RF reason to retune the carrier.
+
+---
+
+## Multi-constellation — the honest picture
+
+GhostSignal v2 has a real backend seam (`ghostsignal/backends/`, one
+`SignalGenerator` subclass per constellation) so additional GNSS signal
+generators can be plugged in without touching the pipeline, UI, or session
+format. Today:
+
+| Constellation | Backend | Status |
+|---|---|---|
+| **GPS** | [`gps-sdr-sim`](https://github.com/osqzss/gps-sdr-sim) | **Real.** The original backend, driven with a continuous user-motion file. |
+| **Galileo** | [`galileo-sdr-sim`](https://github.com/harshadms/galileo-sdr-sim) (E1B/C) | **Real**, separate binary and backend. |
+| **GLONASS** | external multi-GNSS tool (default target: `gnss-signal-simulator-rs`) | **Experimental / plugin seam only.** The command-building, session plumbing, and UI are fully implemented, but `available()` reports false — and the UI greys the option out — unless you configure a working external binary via `GNSS_MULTI_SIM`. No such tool ships with GhostSignal. |
+| **BeiDou** | same external multi-GNSS tool | **Experimental / plugin seam only.** Same caveat as GLONASS. |
+
+In other words: **GPS and Galileo work out of the box once their simulators
+are built; GLONASS and BeiDou require you to separately obtain, build, and
+configure a multi-GNSS tool that speaks GhostSignal's `--system glonass`/
+`--system beidou` convention.** Nothing about GLONASS/BeiDou is faked —
+the seam is real and tested — but no working binary is bundled or
+guaranteed to exist for your platform.
+
+---
+
+## Running it
+
+### GUI
+
+```powershell
+python -m ghostsignal
+# or, after `pip install -e .`, the console entry point:
+ghostsignal
+```
+
+### Headless CLI
+
+```powershell
+ghostsignal-cli run session.json [--dry-run] [--generate-only] [--nav FILE] [--work-dir DIR]
+```
+
+- `--dry-run` — build the generate/transmit commands and print them (two
+  lines: the generator argv, then the transmitter argv), without running
+  anything or writing the motion file.
+- `--generate-only` — write the motion file and run the generator, but skip
+  the transmit step (useful for IQ-generation-only hosts, e.g. Docker).
+- `--nav FILE` — path to the RINEX broadcast ephemeris file (default `brdc.nav`).
+- `--work-dir DIR` — where the motion file and generated `.bin` are written
+  (default `.`).
+
+Example:
+
+```powershell
+ghostsignal-cli run session.json --dry-run --nav brdc.nav
+# gps-sdr-sim -e brdc.nav -x .\motion.csv -T 2026/01/01,00:00:00 -d 347 -s 2600000 -b 8 -o .\gps_sim.bin
+# C:\Program Files\PothosSDR\bin\hackrf_transfer.exe -t .\gps_sim.bin -f 1575420000 -s 2600000 -a 1 -x 30 -R
+```
+
+---
+
+## Setup (Windows-first)
+
+GhostSignal is developed and tested on Windows; this is the primary setup
+path. It should run on Linux/macOS as well (pure Python + PyQt6), but build
+scripts and auto-detected tool paths below are Windows-specific.
+
+### 1. Python 3.12 virtual environment
+
+PyQt6 does not currently ship wheels for Python 3.14. Use **Python 3.12**:
+
+```powershell
+py -3.12 -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
+
+(`scripts/setup-venv.ps1` does the same thing.) This installs the GUI
+(`ghostsignal`) and headless (`ghostsignal-cli`) console entry points via
+`pyproject.toml`.
+
+### 2. Build the signal generators
+
+**A C compiler is required and is NOT bundled.** You need a mingw-w64/MSYS2
+`gcc` toolchain on `PATH` (e.g. via Git Bash's MSYS2 install, or MSYS2
+directly) before running either build script.
+
+```powershell
+scripts\build-gps-sdr-sim.ps1       # clones osqzss/gps-sdr-sim, compiles gps-sdr-sim.exe
+scripts\build-galileo-sdr-sim.ps1   # clones harshadms/galileo-sdr-sim, prints CMake build steps
+```
+
+`build-gps-sdr-sim.ps1` clones the repo if missing and compiles it with a
+recompiled, larger `USER_MOTION_SIZE` (default 36000 samples = 3600 s at
+10 Hz) so continuous routes aren't capped at the stock 300-second buffer.
+It prints the path to set as `$env:GPS_SDR_SIM` when done.
+
+`build-galileo-sdr-sim.ps1` clones `harshadms/galileo-sdr-sim` (CMake-based)
+and prints the MinGW/MSYS2 build commands to run from a shell with that
+toolchain, then the `$env:GALILEO_SDR_SIM` path to set.
+
+Neither script attempts to build a GLONASS/BeiDou tool — see the
+multi-constellation table above.
+
+### 3. SDR hardware
+
+- **HackRF One** — install [PothosSDR](https://github.com/pothosware/PothosSDR)
+  or the standalone HackRF Windows drivers. GhostSignal auto-detects
+  `C:\Program Files\PothosSDR\bin\hackrf_transfer.exe` if present.
+- **LimeSDR** — install LimeSuite / SoapySDR with the LMS7 driver module;
+  GhostSignal drives it via `SoapySDRUtil`-style CLI args.
+
+### 4. Run
+
+```powershell
+python -m ghostsignal
+```
+
+---
+
+## Tool path overrides
+
+By default each external tool is resolved by (1) an explicit override,
+(2) an environment variable, (3) the known PothosSDR install directory,
+(4) falling back to the bare command name on `PATH`. Set these if a tool
+isn't where GhostSignal expects it:
+
+| Variable | Tool |
+|---|---|
+| `GPS_SDR_SIM` | `gps-sdr-sim` binary |
+| `GALILEO_SDR_SIM` | `galileo-sdr-sim` binary |
+| `GNSS_MULTI_SIM` | external multi-GNSS tool used for GLONASS/BeiDou |
+| `HACKRF_TRANSFER` | `hackrf_transfer` binary |
+| `SOAPY_SDR_UTIL` | SoapySDR-based LimeSDR CLI tool |
+
+```powershell
+$env:GPS_SDR_SIM = "C:\path\to\gps-sdr-sim.exe"
+```
+
+---
+
+## Headless / Docker
+
+`ghostsignal-cli` imports no Qt module, so it runs in a plain Python
+container. The included `Dockerfile` builds `gps-sdr-sim` from source (with
+a large `USER_MOTION_SIZE`) and sets `GPS_SDR_SIM` automatically; `docker
+compose up` runs `ghostsignal-cli run /work/session.json --generate-only
+--nav /work/brdc.nav --work-dir /work` against a mounted `./work` directory.
+
+**This image is for IQ generation only.** It does not include Galileo or
+multi-GNSS tooling, and it is not set up for a transmitter. Reliable live
+USB SDR transmit from a Windows container is not supported — keep live TX on
+the host, and use Docker/headless only to generate `.bin` files you then
+transmit from a machine with real SDR hardware attached (or run
+`ghostsignal-cli run ... --generate-only` directly on the host if you don't
+need the isolation).
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  GhostSignal GUI                │
-│  ┌───────────┐  ┌──────────────┐  ┌──────────┐ │
-│  │  Sidebar  │  │  Map (OSM)   │  │  HackRF  │ │
-│  │ Transport │  │  Leaflet.js  │  │  Panel   │ │
-│  │ Waypoints │  │  OSRM Route  │  │  CLI Gen │ │
-│  │ Save/Load │  │  Live Pos    │  │  Log     │ │
-│  └───────────┘  └──────────────┘  └──────────┘ │
-└──────────────────────┬──────────────────────────┘
-                       │ generates
-          ┌────────────▼────────────┐
-          │       Shell Script      │
-          │  gps-sdr-sim → .bin     │
-          │  hackrf_transfer → TX   │
-          └─────────────────────────┘
+ghostsignal/
+├─ core/            # pure Python, no PyQt import anywhere (enforced by a test)
+│  ├─ geo.py         haversine, LLA<->ECEF, interpolation
+│  ├─ models.py      Waypoint, Route, TrajectoryPoint, SpeedProfile, SdrConfig, Session
+│  ├─ routing.py      OSRM client + straight-line routing
+│  ├─ motion.py       Route + SpeedProfile -> 10 Hz trajectory; motion-file writers
+│  ├─ nmea.py         .nmea track parsing -> Route
+│  ├─ cli.py          pure argv / shell-script builders
+│  ├─ session.py      Session <-> JSON (schema v2), v1 session migration
+│  └─ rinex.py        ephemeris filename resolution, mirror fallback, download+cache
+├─ backends/         # SignalGenerator implementations (gps_sdr_sim, galileo_sdr_sim, glonass, beidou) + registry
+├─ sdr/              # SdrTransmitter implementations (hackrf, limesdr)
+├─ pipeline.py       # generate -> transmit orchestrator (dry-run friendly)
+├─ ui/               # PyQt6: main_window, left/right/map panels, dialogs, assets
+├─ workers/          # QThread/QProcess wrappers: OSRM fetch, pipeline execution, map playback
+└─ headless/cli.py   # `ghostsignal-cli` — same core+pipeline, no Qt
 ```
+
+A test (`tests/test_architecture.py`) asserts that `core/`, `backends/`,
+`sdr/`, and `headless/` never import `PyQt6`, which is what makes the
+headless CLI and the Docker image possible.
 
 ---
 
-## Requirements
-
-### System dependencies
-
-| Tool | Version | Purpose |
-|------|---------|---------|
-| Python | ≥ 3.11 | Runtime |
-| PyQt6 | ≥ 6.6.0 | GUI framework |
-| PyQt6-WebEngine | ≥ 6.6.0 | Embedded map |
-| [gps-sdr-sim](https://github.com/osqzss/gps-sdr-sim) | latest | GPS I/Q baseband generator |
-| [hackrf](https://github.com/greatscottgadgets/hackrf) | latest | HackRF One tools (`hackrf_transfer`) |
-| LimeSuite / SoapySDR | optional | LimeSDR support |
-
-### Python packages
-
-```
-PyQt6>=6.6.0
-PyQt6-WebEngine>=6.6.0
-requests>=2.31.0
-```
-
----
-
-## Installation
-
-### Linux (Ubuntu / Debian)
-
-```bash
-# 1. Install system packages
-sudo apt update
-sudo apt install -y python3 python3-pip python3-venv git build-essential cmake
-
-# 2. Install HackRF tools
-sudo apt install -y hackrf
-
-# 3. Build gps-sdr-sim from source
-git clone https://github.com/osqzss/gps-sdr-sim.git
-cd gps-sdr-sim
-gcc gpssim.c -lm -O3 -o gps-sdr-sim
-sudo cp gps-sdr-sim /usr/local/bin/
-cd ..
-
-# 4. Clone GhostSignal
-git clone https://github.com/snb9042/ghostsignal.git
-cd ghostsignal
-
-# 5. Create virtual environment and install Python deps
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# 6. Run
-python ghostsignal.py
-```
-
-### Windows (10 / 11)
+## Testing
 
 ```powershell
-# 1. Install Python 3.11+ from https://python.org
-
-# 2. Install HackRF Windows drivers from:
-#    https://github.com/greatscottgadgets/hackrf/releases
-
-# 3. Build or download gps-sdr-sim:
-#    https://github.com/osqzss/gps-sdr-sim (pre-built .exe in releases)
-#    Add the folder to your PATH
-
-# 4. Clone GhostSignal
-git clone https://github.com/snb9042/ghostsignal.git
-cd ghostsignal
-
-# 5. Install Python deps
-pip install -r requirements.txt
-
-# 6. Run
-python ghostsignal.py
+$env:QT_QPA_PLATFORM = "offscreen"
+python -m pytest -q
 ```
 
-### LimeSDR (optional)
-
-```bash
-# Install LimeSuite
-sudo apt install -y limesuite soapysdr-tools soapysdr-module-lms7
-
-# Verify
-SoapySDRUtil --find
-```
-
----
-
-## How to Use
-
-### 1. Place waypoints on the map
-
-Click anywhere on the map to drop a waypoint. Each click adds a numbered marker:
-- **Green** = start point
-- **Yellow** = intermediate points  
-- **Red** = end point
-
-Drag any marker to reposition it. Use the **CLEAR** button to remove all waypoints.
-
-### 2. Select transport mode
-
-Choose from the left sidebar:
-| Mode | Routing | Default Speed |
-|------|---------|--------------|
-| 🚶 Walk | Road footpaths | 5 km/h |
-| 🚴 Cycle | Cycling paths | 15 km/h |
-| 🚗 Drive | Road network | 60 km/h |
-| ⛵ Boat | Straight line | 25 km/h |
-| ✈ Plane | Straight line | 800 km/h |
-
-The route is automatically fetched from OSRM and drawn on the map. Distance and estimated duration are shown below the waypoint list.
-
-### 3. Set simulation start time
-
-Use the **Simulation Start Time** field to set the exact GPS timestamp your receiver will see. This is passed to `gps-sdr-sim` as the `-T` parameter.
-
-### 4. Configure SDR parameters
-
-In the right panel:
-- **Device** — HackRF One or LimeSDR
-- **Frequency** — Use presets (L1, L2, L5, GLONASS) or type a custom Hz value
-- **TX Gain** — 0–47 dB (HackRF). Start at 30 dB for testing in a shielded environment
-- **Sample Rate** — 2.6 Msps is the standard for GPS L1
-
-### 5. Generate the CLI script
-
-The **CLI Command** tab auto-generates the exact shell commands needed:
-
-```bash
-# Step 1: Generate GPS I/Q baseband
-gps-sdr-sim -e brdc.nav \
-  -l 42.69751,23.32415,100 \
-  -T 2026/03/27,19:00:00 \
-  -d 300 \
-  -o gps_sim.bin
-
-# Step 2: Transmit with HackRF
-hackrf_transfer -t gps_sim.bin \
-  -f 1575420000 \
-  -s 2600000 \
-  -a 1 -x 30 \
-  -R
-```
-
-Click **Copy** or **Save .sh** to export the script. Download a RINEX navigation file (`.nav`) from [CDDIS NASA](https://cddis.nasa.gov/archive/gnss/data/current/) or [IGS](https://igs.org/products/).
-
-### 6. Transmit
-
-Click **▶ TRANSMIT**. The GUI will:
-1. Start the route playback animation (moving dot on map)
-2. Show live lat/lng in the status bar
-3. Show progress for the full route duration
-
-Click **■ STOP TX** to halt.
-
-### 7. Save / Load sessions
-
-Use **Save** and **Load** buttons to persist your waypoints, route, and SDR settings as a `.json` file.
-
----
-
-## Environment Variables
-
-Override default tool paths if they are not in `PATH`:
-
-```bash
-export GPS_SDR_SIM=/path/to/gps-sdr-sim
-export HACKRF_TRANSFER=/path/to/hackrf_transfer
-export LIMESDR_TX=/path/to/SoapySDRUtil
-```
-
----
-
-## Multi-Waypoint Routes
-
-For routes with multiple waypoints, GhostSignal generates a starting-point script. For true continuous route simulation, chain multiple `gps-sdr-sim` runs or use a GPS NMEA generator:
-
-```bash
-# Example: generate sequential segments
-for i in 1 2 3; do
-  gps-sdr-sim -e brdc.nav -l $LAT_$i,$LNG_$i,100 -d 60 -o seg_$i.bin
-done
-cat seg_1.bin seg_2.bin seg_3.bin > full_route.bin
-hackrf_transfer -t full_route.bin -f 1575420000 -s 2600000 -a 1 -x 30 -R
-```
-
----
-
-## Troubleshooting
-
-| Problem | Solution |
-|---------|---------|
-| `hackrf_transfer: command not found` | Install `hackrf` package or add to PATH |
-| `gps-sdr-sim: command not found` | Build from source and add to PATH |
-| Map not loading | Check internet connection (OSM tiles require network) |
-| LimeSDR not detected | Run `SoapySDRUtil --find` to verify driver |
-| High CPU on route fetch | OSRM is a free public server — add retry on timeout |
-| PyQt6-WebEngine missing | `pip install PyQt6-WebEngine` |
-
----
-
-## Roadmap (v2)
-
-- [ ] True continuous NMEA route injection (stitch multi-segment I/Q)
-- [ ] GLONASS / Galileo / BeiDou multi-constellation support
-- [ ] Replay recorded `.nmea` track files
-- [ ] Speed variation along route (acceleration / deceleration)
-- [ ] Built-in RINEX downloader
-- [ ] Docker container for headless operation
+The suite covers pure-core logic (geo, motion/speed-profile math, routing
+with mocked HTTP, NMEA parsing, session round-trip + v1 migration, RINEX
+filename/fallback logic, backend `available()`/argv shape), a dry-run
+pipeline test that assembles real generate+transmit argv without touching
+hardware, the architecture (no-PyQt-in-core) rule, and PyQt6 widget/import
+smoke tests run offscreen.
 
 ---
 
 ## Credits
 
-- [gps-sdr-sim](https://github.com/osqzss/gps-sdr-sim) by Takuji Ebinuma — GPS signal generator
+- [gps-sdr-sim](https://github.com/osqzss/gps-sdr-sim) by Takuji Ebinuma (osqzss) — GPS L1 C/A signal generator
+- [galileo-sdr-sim](https://github.com/harshadms/galileo-sdr-sim) by harshadms — Galileo E1B/C signal generator
 - [HackRF](https://github.com/greatscottgadgets/hackrf) by Great Scott Gadgets
-- [Leaflet](https://leafletjs.com/) — Interactive maps
-- [OpenStreetMap](https://www.openstreetmap.org/) — Map data
+- [Leaflet](https://leafletjs.com/) — interactive maps
+- [OpenStreetMap](https://www.openstreetmap.org/) contributors and [CARTO](https://carto.com/) — map tiles/data
 - [OSRM](http://project-osrm.org/) — Open Source Routing Machine
-- Built with [Perplexity Computer](https://www.perplexity.ai/computer)
 
 ---
 
