@@ -26,6 +26,11 @@ def source_urls(date: datetime.date, sources=DEFAULT_SOURCES) -> list[str]:
     return urls
 
 def decompress(name: str, data: bytes) -> bytes:
+    """Decompress .gz files; plain files returned as-is.
+
+    Only .gz (gzip) decompression is handled. Plain RINEX files are returned
+    unchanged. .Z (compress) format is not supported.
+    """
     if name.endswith(".gz"):
         return gzip.decompress(data)
     return data

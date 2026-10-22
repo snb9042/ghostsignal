@@ -20,11 +20,12 @@ from PyQt6.QtWidgets import (
 from .left_panel import LeftPanel, TRANSPORT_KEYS
 from .right_panel import RightPanel
 from .map_panel import MapPanel
-from .dialogs import AuthorizationDialog
+from .dialogs import AuthorizationDialog, SettingsDialog
 from ..core.models import Waypoint, SpeedProfile, SdrConfig, Constellation, Session
 from ..core import routing, motion, cli as cli_mod, session as session_mod, nmea, rinex
 from ..constants import OSRM_PROFILES, SAMPLE_RATES, TRANSPORT_SPEEDS
 from .. import config as config_mod
+from ..config import ToolConfig, DEFAULT_TOOL_KEYS
 from .. import pipeline as pipeline_mod
 from ..backends.registry import build_registry
 from ..sdr.hackrf import HackRfTransmitter
@@ -68,6 +69,7 @@ class MainWindow(QMainWindow):
         self.transmitting = False
         self._work_dir_path: str | None = None
         self._last_trajectory = None
+        self._earthdata = ("", "")  # (username, password) pair for ephemeris download
 
         self.osrm_worker: OsrmWorker | None = None
         self.pipeline_worker: PipelineWorker | None = None
@@ -87,6 +89,7 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
+        self._make_menu_bar()
         main_layout.addWidget(self._make_topbar())
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -102,6 +105,29 @@ class MainWindow(QMainWindow):
         self.status_bar = QLabel("STATE: IDLE  |  DEVICE: —  |  FREQ: —  |  MODE: —  |  WAYPTS: 0")
         self.status_bar.setObjectName("status_label")
         main_layout.addWidget(self.status_bar)
+
+    def _make_menu_bar(self):
+        """Create menu bar with Tools→Settings action."""
+        from PyQt6.QtWidgets import QMenu
+        menu_bar = self.menuBar()
+        tools_menu = menu_bar.addMenu("&Tools")
+        settings_action = tools_menu.addAction("&Settings")
+        settings_action.triggered.connect(self._on_settings)
+
+    def _on_settings(self):
+        """Open the Settings dialog and apply changes on accept."""
+        dlg = SettingsDialog(self, initial={
+            k: v for k, v in self.cfg.overrides.items() if k in DEFAULT_TOOL_KEYS
+        })
+        if dlg.exec() == SettingsDialog.DialogCode.Accepted:
+            values = dlg.values()
+            # Extract tool keys and pass to ToolConfig
+            tool_overrides = {k: v for k, v in values.items() if k in DEFAULT_TOOL_KEYS}
+            self.cfg = ToolConfig(overrides=tool_overrides)
+            # Store earthdata credentials
+            self._earthdata = (values.get("earthdata_username", ""),
+                             values.get("earthdata_password", ""))
+            self._log("Settings updated", "success")
 
     def _make_topbar(self) -> QWidget:
         bar = QWidget()

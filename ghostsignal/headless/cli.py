@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, subprocess, sys, shlex
+import argparse, subprocess, sys
 from ..config import ToolConfig
 from ..core.session import load_session
 from ..core import routing, motion
@@ -41,7 +41,7 @@ def main(argv=None) -> int:
         return 0
     def writer(p, t): open(p, "w", encoding="utf-8").write(t)
     def runner(a):
-        if args.generate_only and a is plan.tx_argv:
+        if args.generate_only and a == plan.tx_argv:
             return 0
         return subprocess.run(a).returncode
     return pipeline.run_pipeline(plan, writer=writer, runner=runner,

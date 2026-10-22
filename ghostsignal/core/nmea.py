@@ -17,9 +17,16 @@ def parse_nmea_track(text: str) -> Route:
         f = line.split("*")[0].split(",")
         if len(f) < 10 or not f[2] or not f[4]:
             continue
-        lat = _coord(f[2], f[3], 2)
-        lng = _coord(f[4], f[5], 3)
-        alt = float(f[9]) if f[9] else 100.0
+        # Skip if hemisphere fields are empty (malformed)
+        if not f[3] or not f[5]:
+            continue
+        try:
+            lat = _coord(f[2], f[3], 2)
+            lng = _coord(f[4], f[5], 3)
+            alt = float(f[9]) if f[9] else 100.0
+        except ValueError:
+            # Skip line with corrupt (present but non-numeric) field
+            continue
         wps.append(Waypoint(lat, lng, alt))
     if not wps:
         raise ValueError("no valid $..GGA fixes found")

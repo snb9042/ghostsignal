@@ -1,4 +1,3 @@
-import shutil
 from ghostsignal.backends.gps_sdr_sim import GpsSdrSim
 from ghostsignal.backends.galileo_sdr_sim import GalileoSdrSim
 from ghostsignal.backends.glonass import GlonassBackend

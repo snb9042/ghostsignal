@@ -45,3 +45,22 @@ def test_mainwindow_builds_and_plans():
     assert (plan.tx_argv[0].endswith("hackrf_transfer")
            or plan.tx_argv[0].endswith("hackrf_transfer.exe")
            or plan.tx_argv[0] == "hackrf_transfer")
+
+
+def test_mainwindow_has_settings_menu():
+    from ghostsignal.ui.main_window import MainWindow
+    w = MainWindow(map_panel_factory=StubMapPanel)
+    menu_bar = w.menuBar()
+    actions = menu_bar.actions()
+    assert len(actions) > 0
+    # Find the Tools menu
+    tools_menu = None
+    for action in actions:
+        if action.text() == "&Tools":
+            tools_menu = action.menu()
+            break
+    assert tools_menu is not None
+    # Check that Settings action exists in the menu
+    menu_actions = tools_menu.actions()
+    settings_found = any(action.text() == "&Settings" for action in menu_actions)
+    assert settings_found
