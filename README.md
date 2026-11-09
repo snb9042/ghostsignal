@@ -194,6 +194,42 @@ toolchain, then the `$env:GALILEO_SDR_SIM` path to set.
 Neither script attempts to build a GLONASS/BeiDou tool — see the
 multi-constellation table above.
 
+#### Galileo on Windows via WSL (real, continuous-motion)
+
+`galileo-sdr-sim` (`usrp_galileo`) is a Linux build with heavy deps
+(Boost/Curses/CURL/ZLIB/UHD/glib), so on Windows it's built and run in WSL,
+then bridged to the Windows app. Two caveats worth knowing: upstream
+`usrp_galileo` is **static-location only** and its IQ output is **16-bit**
+(HackRF wants 8-bit → a sample-format conversion is needed before transmit).
+
+The `scripts/` directory contains everything to reproduce the working setup:
+
+- **`galileo-sdr-sim-motion-patch.py`** — run inside the cloned source
+  (`python3 galileo-sdr-sim-motion-patch.py` with `ROOT` pointing at the repo)
+  to add a `-x` **user-motion-file** flag. It reads the exact
+  `time, lat, lon, height` 10 Hz CSV GhostSignal already generates for GPS, so
+  Galileo gets the same **continuous moving-route** signal (the per-step motion
+  machinery was already present upstream; it was just fed a single static
+  point). Rebuild after patching.
+- **`galileo_wsl_wrapper.py`** + **`galileo-sdr-sim.cmd`** — a Windows↔WSL
+  bridge that makes the Linux `usrp_galileo` look like a native
+  `galileo-sdr-sim`: it translates Windows paths to `/mnt/...` and invokes the
+  binary in the distro via `wsl ... bash -lc`. Edit `DISTRO`/`WSL_BIN` at the
+  top for your setup, drop both on your `PATH` (e.g. `~/bin`), and GhostSignal
+  resolves `galileo-sdr-sim` to it automatically. The backend emits the real
+  `usrp_galileo` flags (`-e -x -o -T -U 1 -b 1`).
+
+Build steps in WSL (Ubuntu):
+```bash
+sudo apt install -y build-essential cmake git pkg-config libglib2.0-dev \
+  libboost-all-dev libncurses-dev libcurl4-openssl-dev zlib1g-dev libzmq3-dev libuhd-dev
+git clone https://github.com/harshadms/galileo-sdr-sim && cd galileo-sdr-sim
+python3 /path/to/scripts/galileo-sdr-sim-motion-patch.py   # adds -x motion support
+cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
+```
+WSL needs hardware virtualization enabled (Intel VT-x / AMD-V + the
+"Virtual Machine Platform" Windows feature).
+
 ### 3. SDR hardware
 
 - **HackRF One** — install [PothosSDR](https://github.com/pothosware/PothosSDR)

@@ -26,6 +26,20 @@ def test_galileo_default_freq_is_e1():
     assert GalileoSdrSim(binary="x").default_freq_hz == 1_575_420_000
     assert GalileoSdrSim(binary="x").constellation is Constellation.GALILEO
 
+
+def test_galileo_argv_usrp_file_sink_flags():
+    # Real usrp_galileo interface: -x continuous motion, file sink (-U 1 -b 1), no -s/-d.
+    g = GalileoSdrSim(binary="galileo-sdr-sim")
+    argv = g.build_argv(nav_file="brdc.nav", motion_file="m.csv", motion_fmt="llh",
+                        start_time="2026/10/25,12:00:00", duration_s=120,
+                        sample_rate=2_600_000, iq_bits=8, iono=False, out_file="gal.bin")
+    assert "-x" in argv and argv[argv.index("-x") + 1] == "m.csv"
+    assert argv[argv.index("-U") + 1] == "1"      # disable USRP -> file sink
+    assert argv[argv.index("-b") + 1] == "1"      # disable bit stream
+    assert argv[argv.index("-o") + 1] == "gal.bin"
+    assert "-s" not in argv and "-d" not in argv  # usrp_galileo takes neither
+    assert GalileoSdrSim(binary="x").supported_motion_formats == {"llh"}
+
 def test_available_false_when_binary_missing():
     assert GpsSdrSim(binary="definitely-not-a-real-binary-xyz").available() is False
 
